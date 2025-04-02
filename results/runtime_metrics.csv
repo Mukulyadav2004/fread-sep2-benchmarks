@@ -1,0 +1,5 @@
+Rows	Method	Median_Time_ms
+10,000	Manual	45.2
+10,000	sep2	22.1
+100,000	Manual	402.7
+100,000	sep2	198.4
