@@ -1,28 +1,32 @@
 # scripts/sep2_prototype.R
+# This function wraps data.table's fread and lets you split columns further using 'sep2'
 fread <- function(..., sep2 = NULL, sep2cols = NULL) {
-  # Use data.table's fread for the initial read
+  # First, read the data using the standard data.table::fread
   dt <- data.table::fread(...)
-
-  # --- START: Your sep2 implementation ---
+  
+  # Check if we need to apply the secondary separator logic
   if (!is.null(sep2) && !is.null(sep2cols) && length(sep2cols) > 0) {
     if (!is.character(sep2) || length(sep2) != 1) {
-      stop("'sep2' must be a single character string.")
+      stop("'sep2' must be a single string character.")
     }
     if (!is.character(sep2cols) || !all(sep2cols %in% names(dt))) {
-       stop("'sep2cols' must be a character vector of valid column names present in the data.")
+      stop("'sep2cols' must be a character vector of valid column names in the data.")
     }
-
-    message("Applying sep2 splitting...") # Optional progress message
-
-    # Loop through specified columns and split them
+    
+    message("Splitting specified columns using 'sep2'...")
+    
+    # Go through each listed column and split it on 'sep2'
     for (col in sep2cols) {
-       # Use data.table::tstrsplit for efficiency
-       new_cols <- paste0(col, "_", seq_len(max(lengths(strsplit(dt[[col]], sep2, fixed = TRUE))))) # Basic naming
-       dt[, (new_cols) := data.table::tstrsplit(get(col), sep2, fixed = TRUE)]
-       dt[, (col) := NULL] # Optionally remove the original column
+      # Figure out how many splits we'll need
+      new_cols <- paste0(
+        col, "_",
+        seq_len(max(lengths(strsplit(dt[[col]], sep2, fixed = TRUE))))
+      )
+      
+      dt[, (new_cols) := data.table::tstrsplit(get(col), sep2, fixed = TRUE)]
+      dt[, (col) := NULL]  # Remove the original column once it's been split
     }
-    # --- END: Your sep2 implementation ---
   }
-
+  
   return(dt)
 }
