@@ -61,9 +61,8 @@ Although the prototype is in R, these tests highlight how a future native implem
 
 ## Understanding the Results
 
-*   **Runtime:** Examine the plot `results/figures/runtime_plot.png` and the table `results/tables/runtime_metrics_aggregated.csv`.
-    *   The plot visually compares the median time (in milliseconds, log scale) for the `Manual` vs. `sep2` methods as the number of rows increases (log scale).
-    *   **Expected Outcome:** The line for the `sep2` method should be consistently lower than the `Manual` line, indicating faster execution times.
+*   **Runtime:** Examine the table `results/tables/runtime_metrics_aggregated.csv`.
+   *   **Expected Outcome:** The line for the `sep2` method should be consistently lower than the `Manual` line, indicating faster execution times.
 
 *   **Memory Usage:** Examine the table `results/tables/memory_metrics_gc.csv`.
     *   This table shows the estimated increase in memory usage (in MB) for each method.
@@ -74,4 +73,4 @@ Although the prototype is in R, these tests highlight how a future native implem
 
 ## Important Note for Mentor
 
-The `scripts/sep2_prototype.R` file contains a **simplified R prototype** designed solely for demonstrating the *concept* and running these benchmarks. It is **not** an optimized C implementation. The positive results from this prototype serve as evidence that a proper, efficient implementation integrated within `fread`'s C code (as proposed for GSoC) is likely to yield substantial performance improvements.
+Benchmarks use an **R prototype** (`scripts/sep2_prototype.R`) testing splitting logic post-load, currently showing a modest **~7-8% speedup** (1M rows). This is **not** the final, optimized C implementation; substantial gains are expected from the proposed direct `fread` C integration (GSoC). Further R prototype optimization is also planned
