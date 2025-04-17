@@ -2,6 +2,7 @@
 library(data.table)
 library(microbenchmark)
 library(ggplot2)
+library(scales) # Added for scales::label_number
 
 # Basic settings for this script
 benchmark_times <- 10
@@ -23,24 +24,24 @@ dir.create(results_dir_fig, recursive = TRUE, showWarnings = FALSE)
 # Define the main benchmarking function
 benchmark_sep2 <- function(file, sep_char, cols_split, times_run) {
   message(paste("Benchmarking Runtime:", basename(file)))
-  
-  # Attempt to read data from the file; stop if there's an error
+
+  # Attempt to read data from the file, stop if there's an error
   dt_orig <- tryCatch({
     data.table::fread(file)
   }, error = function(e) {
     stop(...)
   })
-  
+
   # Compare manual splitting with the custom sep2 approach
   mb_result <- microbenchmark(
     # Manual splitting approach
     manual = {
       dt_manual <- copy(dt_orig)
-      
+
       # Begin manual splitting column by column
       for(col in cols_split) {
         split_result_list <- tstrsplit(dt_manual[[col]], sep_char, fixed = TRUE)
-        
+
         if (length(split_result_list) > 0 && !all(sapply(split_result_list, is.null))) {
           max_splits_found <- length(split_result_list)
           new_col_names <- paste0(col, "_", seq_len(max_splits_found))
@@ -58,67 +59,92 @@ benchmark_sep2 <- function(file, sep_char, cols_split, times_run) {
     times = times_run,
     unit = "ms"
   )
-  
-  mb_result$file <- file
+
+  # Store the filename with the result object for later retrieval
+  attr(mb_result, "filename") <- file
   return(mb_result)
 }
 
 # Process benchmark results and generate plots
 plot_results <- function(results_list, agg_file, plot_out_file) {
   message("Processing and plotting runtime results...")
-  
+
   # Check for valid microbenchmark objects
   if (length(results_list) == 0 || all(sapply(results_list, function(x) !inherits(x, "microbenchmark")))) {
     warning("No valid benchmark data to process.")
     return(NULL)
   }
-  
+
   # Combine all benchmarks into one table
-  df <- rbindlist(lapply(results_list, function(mb_result) {
+  processed_results <- lapply(results_list, function(mb_result) {
     if (!inherits(mb_result, "microbenchmark")) return(NULL)
-    
-    file_path <- tryCatch(unique(mb_result$file), error = function(e) NA)
-    if (is.na(file_path)) {
-      warning("Couldn't identify the file name from benchmark result.")
-      return(NULL)
+
+    # Retrieve the filename stored as an attribute
+    file_path <- attr(mb_result, "filename")
+    if (is.null(file_path)) {
+        warning("Couldn't identify the file name from benchmark result attribute.")
+        return(NULL)
     }
-    
-    # Attempt to extract the number of rows from the file name
-    row_match <- regmatches(basename(file_path), regexpr("test_([0-9e\\+\\.]+)\\.csv", basename(file_path)))
-    if (length(row_match) > 0 && length(row_match[[1]]) >= 2) {
-      rows <- as.numeric(row_match[[1]][2])
+    base_filename <- basename(file_path)
+    rows <- NA
+    pattern <- "test_([0-9.e+]+)\\.csv$" 
+
+    if (grepl(pattern, base_filename)) {
+        row_count_str <- sub(pattern, "\\1", base_filename)
+        rows <- as.numeric(row_count_str)
+        # Add a check in case conversion fails
+        if (is.na(rows)) {
+            warning(paste("Could not convert extracted row count string to numeric:", row_count_str, "from file:", base_filename), immediate. = TRUE)
+            rows <- NA # Ensure it remains NA if conversion failed
+        }
     } else {
-      warning(paste("Unable to find row count in file name:", basename(file_path)))
-      rows <- NA
+        # This warning now correctly indicates the pattern didn't match the filename at all
+        warning(paste("Filename pattern did not match:", base_filename), immediate. = TRUE)
+        rows <- NA
     }
-    
+    if (is.na(rows)) {
+        warning(paste("Skipping result due to failed row count extraction for file:", base_filename), immediate. = TRUE)
+        return(NULL) # Return NULL to be filtered out later
+    }
+
     stats_summary <- summary(mb_result)
-    
+
     data.table(
-      File = basename(file_path),
+      File = base_filename, 
       Rows = rows,
       Method = stats_summary$expr,
-      MedianTime_ms = stats_summary$median
+      MedianTime_ms = stats_summary$median 
     )
-  }), fill = TRUE)
-  
-  # Filter out unprocessable rows
+  })
+
+  # Filter out any NULLs that resulted from processing errors
+  processed_results <- Filter(Negate(is.null), processed_results)
+
+  if (length(processed_results) == 0) {
+      warning("No results remaining after processing individual benchmark objects.")
+      return(NULL)
+  }
+
+  # Combine into a single data table
+  df <- rbindlist(processed_results)
+
+  # Filter out any remaining rows with potential issues 
   df <- df[!is.na(Rows) & !is.na(Method) & !is.na(MedianTime_ms)]
   if (nrow(df) == 0) {
-    warning("No benchmark data to plot after processing.")
+    warning("No benchmark data to plot after aggregation and filtering.")
     return(NULL)
   }
-  
+
   # Sort output for readability
   setorder(df, Rows, Method)
-  
+
   print("Summary of median execution times (ms):")
   print(df)
-  
+
   # Save aggregated metrics
   message(paste("Writing aggregated results to:", agg_file))
   fwrite(df, agg_file)
-  
+
   # Create and save the plot
   message("Creating runtime comparison plot...")
   p <- ggplot(df, aes(x = Rows, y = MedianTime_ms, color = Method, group = Method)) +
@@ -138,10 +164,10 @@ plot_results <- function(results_list, agg_file, plot_out_file) {
     ) +
     theme_minimal(base_size = 12) +
     theme(legend.position = "bottom", plot.title = element_text(face="bold"))
-  
+
   message(paste("Saving runtime plot to:", plot_out_file))
   ggsave(plot_out_file, plot = p, width = 8, height = 6, dpi = 150)
-  
+
   return(p)
 }
 
@@ -160,8 +186,19 @@ runtime_results_list <- lapply(
   times_run = benchmark_times
 )
 
-message(paste("Saving raw microbenchmark results to:", raw_results_file))
+message(paste("Saving raw microbenchmark results object to:", raw_results_file))
 saveRDS(runtime_results_list, raw_results_file)
 
+# Load the results back 
+# runtime_results_list <- readRDS(raw_results_file)
+
 runtime_plot <- plot_results(runtime_results_list, agg_results_file, plot_file)
-message("Runtime benchmarking script completed successfully.")
+
+# Check if plotting failed
+if(is.null(runtime_plot)) {
+    message("Plotting failed or produced no output.")
+} else {
+    message("Runtime plot generated successfully.")
+}
+
+message("Runtime benchmarking script completed.") 
